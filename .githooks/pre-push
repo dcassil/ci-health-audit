@@ -1,0 +1,6 @@
+#!/bin/sh
+# Block pushes that regress code health beyond the configured threshold.
+npx --no-install ci-health-audit gate || {
+  echo "ci-health-audit gate failed — push blocked. Fix regressions or adjust threshold." >&2
+  exit 1
+}

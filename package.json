@@ -1,0 +1,70 @@
+{
+  "name": "ci-health-audit",
+  "version": "0.1.0",
+  "description": "Deterministic 0-10 code health score for JS/TS codebases — usable as a CLI, GitHub Action, or pre-commit/pre-push gate.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Daniel Cassil <me@danielcassil.com>",
+  "keywords": [
+    "code-health",
+    "code-quality",
+    "static-analysis",
+    "cyclomatic-complexity",
+    "dependency-graph",
+    "circular-dependencies",
+    "ci",
+    "pre-commit",
+    "typescript",
+    "javascript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dcassil/ci-health-audit.git"
+  },
+  "homepage": "https://github.com/dcassil/ci-health-audit#readme",
+  "bugs": {
+    "url": "https://github.com/dcassil/ci-health-audit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "ci-health-audit": "./dist/cli/main.js",
+    "ciha": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.eslint.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "build": "tsc && chmod +x dist/cli/main.js",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "commander": "13.1.0",
+    "dependency-cruiser": "16.10.4",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "26.1.2",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "9.39.5",
+    "globals": "17.8.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10"
+  }
+}

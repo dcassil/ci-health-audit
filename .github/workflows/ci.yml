@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Determinism (NFR-001) depends on fixed external tool versions.
+# - dependency-cruiser is pinned in package.json and installed via `npm ci`.
+# - scc is a Go binary the tool shells out to; it is installed here at a pinned
+#   version so later phases' integration test runs reproducibly in CI.
+env:
+  SCC_VERSION: v3.5.0
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Go (for scc)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install scc (pinned)
+        run: |
+          go install "github.com/boyter/scc/v3@${SCC_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies (includes pinned dependency-cruiser)
+        run: npm ci
+
+      - name: Verify tools on PATH
+        run: |
+          scc --version
+          npx depcruise --version
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

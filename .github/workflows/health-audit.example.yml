@@ -1,0 +1,69 @@
+# Example: How a downstream repository would use the ci-health-audit action.
+#
+# Copy this file into YOUR repo's .github/workflows/ directory and adjust:
+#   - The `uses:` ref to point at the published action (owner/repo@version)
+#   - The `config` input path to match your config file location
+#   - Trigger conditions to suit your workflow
+#
+# This example uses workflow_dispatch so it does NOT auto-run in the
+# ci-health-audit repo itself during development.
+
+name: "Health Audit (example)"
+
+on:
+  workflow_dispatch: {}
+  # In a real consumer repo you would also add:
+  # pull_request:
+  #   branches: [main]
+  # schedule:
+  #   - cron: "0 6 * * 1"   # Weekly on Monday at 06:00 UTC
+
+jobs:
+  # ── Mode 1: Scan (report-only, never fails the build) ─────────────────────
+  health-scan:
+    name: "CI Health Scan"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run health scan
+        id: audit
+        # Replace with the published tag once the package is on npm:
+        # uses: your-org/ci-health-audit@v1
+        uses: ./   # local reference for development
+        with:
+          config: "./ci-health-audit.config.json"
+          mode: scan
+          node-version: "20"
+          scc-version: "3.5.0"
+
+      - name: Report score
+        run: |
+          echo "Health score: ${{ steps.audit.outputs.score }}"
+
+  # ── Mode 2: Gate (fails the job when score regresses below threshold) ──────
+  health-gate:
+    name: "CI Health Gate"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run health gate
+        # Replace with the published tag once the package is on npm:
+        # uses: your-org/ci-health-audit@v1
+        uses: ./   # local reference for development
+        with:
+          config: "./ci-health-audit.config.json"
+          mode: gate
+          node-version: "20"
+          scc-version: "3.5.0"
+          fail-on-regression: "true"
+        # The job will fail (exit 1) if the health gate check fails.
+        # Remove the continue-on-error line below in a real gate scenario.
+        continue-on-error: true

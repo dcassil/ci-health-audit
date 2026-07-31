@@ -1,0 +1,130 @@
+name: "ci-health-audit"
+description: >
+  Run ci-health-audit (scan or gate mode) in a consumer repository.
+  Installs scc and dependency-cruiser, builds the action from source,
+  and reports the health score as a job summary and output.
+  NOTE: Once the package is published to npm, replace the build steps
+  with: `run: npx ci-health-audit@latest ${{ inputs.mode }} ...`
+
+inputs:
+  config:
+    description: "Path to the ci-health-audit config file."
+    required: false
+    default: "./ci-health-audit.config.json"
+  mode:
+    description: "Run mode: 'scan' (report only) or 'gate' (fail on regression)."
+    required: false
+    default: "scan"
+  working-directory:
+    description: "Working directory for the audit (the repo root being scanned)."
+    required: false
+    default: "."
+  node-version:
+    description: "Node.js version to use."
+    required: false
+    default: "20"
+  scc-version:
+    description: "scc version to install (semver tag without leading v)."
+    required: false
+    default: "3.5.0"
+  fail-on-regression:
+    description: "When mode=gate, exit 1 on regression (passed through to the CLI)."
+    required: false
+    default: "true"
+
+outputs:
+  score:
+    description: "Numeric overall health score (0–100) produced by the audit."
+    value: ${{ steps.capture.outputs.score }}
+
+runs:
+  using: "composite"
+  steps:
+    # ── 1. Node.js ──────────────────────────────────────────────────────────
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # ── 2. Install scc (Go binary, from GitHub Releases) ────────────────────
+    - name: Install scc
+      shell: bash
+      run: |
+        SCC_VERSION="${{ inputs.scc-version }}"
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        ARCH="$(uname -m)"
+        case "$ARCH" in
+          x86_64)  ARCH="amd64" ;;
+          aarch64) ARCH="arm64" ;;
+          arm64)   ARCH="arm64" ;;
+        esac
+        URL="https://github.com/boyter/scc/releases/download/v${SCC_VERSION}/scc_Linux_${ARCH}.tar.gz"
+        curl -fsSL "$URL" -o /tmp/scc.tar.gz
+        tar -xzf /tmp/scc.tar.gz -C /tmp scc
+        sudo mv /tmp/scc /usr/local/bin/scc
+        scc --version
+
+    # ── 3. Build ci-health-audit from the action's own source ───────────────
+    #    (Remove this block and use `npx ci-health-audit@latest` once published)
+    - name: Build ci-health-audit
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        npm ci --ignore-scripts
+        npm run build
+
+    # ── 4. Install dependency-cruiser in the consumer repo ──────────────────
+    - name: Install dependency-cruiser
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npm install --no-save dependency-cruiser
+
+    # ── 5. Run scan and capture JSON output ─────────────────────────────────
+    - name: Run ci-health-audit (${{ inputs.mode }})
+      id: capture
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CIHA_MODE: ${{ inputs.mode }}
+        CIHA_CONFIG: ${{ inputs.config }}
+        CIHA_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set +e
+        JSON_OUT=$(node "$CIHA_ACTION_PATH/dist/cli/main.js" \
+          "$CIHA_MODE" \
+          --config "$CIHA_CONFIG" \
+          --json 2>&1)
+        EXIT_CODE=$?
+        set -e
+
+        # Extract score from JSON output
+        SCORE=$(echo "$JSON_OUT" | python3 -c \
+          "import sys,json; d=json.load(sys.stdin); print(d.get('score', d.get('overall', '')))" \
+          2>/dev/null || echo "")
+
+        # Emit GitHub output
+        echo "score=${SCORE}" >> "$GITHUB_OUTPUT"
+
+        # Write job summary (human-readable)
+        {
+          echo "## ci-health-audit — ${CIHA_MODE} results"
+          echo ""
+          echo "| Field | Value |"
+          echo "|-------|-------|"
+          echo "| **Overall score** | ${SCORE} |"
+          echo "| **Config** | \`${CIHA_CONFIG}\` |"
+          echo "| **Mode** | ${CIHA_MODE} |"
+          echo ""
+          echo "<details><summary>Full JSON output</summary>"
+          echo ""
+          echo '```json'
+          echo "$JSON_OUT"
+          echo '```'
+          echo ""
+          echo "</details>"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Honour fail-on-regression for gate mode
+        if [ "$CIHA_MODE" = "gate" ] && [ "${{ inputs.fail-on-regression }}" = "true" ]; then
+          exit $EXIT_CODE
+        fi
