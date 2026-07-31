@@ -1,10 +1,9 @@
 name: "ci-health-audit"
 description: >
   Run ci-health-audit (scan or gate mode) in a consumer repository.
-  Installs scc and dependency-cruiser, builds the action from source,
-  and reports the health score as a job summary and output.
-  NOTE: Once the package is published to npm, replace the build steps
-  with: `run: npx ci-health-audit@latest ${{ inputs.mode }} ...`
+  Installs scc, runs the published npm package via npx, and reports the
+  health score as a job summary and step output. dependency-cruiser ships
+  as a dependency of the package, so no separate install is required.
 
 inputs:
   config:
@@ -23,6 +22,10 @@ inputs:
     description: "Node.js version to use."
     required: false
     default: "20"
+  version:
+    description: "ci-health-audit npm version to run (e.g. 'latest' or '0.1.1')."
+    required: false
+    default: "latest"
   scc-version:
     description: "scc version to install (semver tag without leading v)."
     required: false
@@ -34,7 +37,7 @@ inputs:
 
 outputs:
   score:
-    description: "Numeric overall health score (0–100) produced by the audit."
+    description: "Numeric overall health score (0–10) produced by the audit."
     value: ${{ steps.capture.outputs.score }}
 
 runs:
@@ -64,22 +67,9 @@ runs:
         sudo mv /tmp/scc /usr/local/bin/scc
         scc --version
 
-    # ── 3. Build ci-health-audit from the action's own source ───────────────
-    #    (Remove this block and use `npx ci-health-audit@latest` once published)
-    - name: Build ci-health-audit
-      shell: bash
-      working-directory: ${{ github.action_path }}
-      run: |
-        npm ci --ignore-scripts
-        npm run build
-
-    # ── 4. Install dependency-cruiser in the consumer repo ──────────────────
-    - name: Install dependency-cruiser
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: npm install --no-save dependency-cruiser
-
-    # ── 5. Run scan and capture JSON output ─────────────────────────────────
+    # ── 3. Run the published package via npx and capture JSON output ────────
+    #    dependency-cruiser is bundled as a dependency of ci-health-audit, so
+    #    npx puts both the CLI and `depcruise` on PATH — no separate install.
     - name: Run ci-health-audit (${{ inputs.mode }})
       id: capture
       shell: bash
@@ -87,10 +77,10 @@ runs:
       env:
         CIHA_MODE: ${{ inputs.mode }}
         CIHA_CONFIG: ${{ inputs.config }}
-        CIHA_ACTION_PATH: ${{ github.action_path }}
+        CIHA_VERSION: ${{ inputs.version }}
       run: |
         set +e
-        JSON_OUT=$(node "$CIHA_ACTION_PATH/dist/cli/main.js" \
+        JSON_OUT=$(npx --yes "ci-health-audit@${CIHA_VERSION}" \
           "$CIHA_MODE" \
           --config "$CIHA_CONFIG" \
           --json 2>&1)

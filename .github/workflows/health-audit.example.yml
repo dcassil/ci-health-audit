@@ -32,7 +32,7 @@ jobs:
       - name: Run health scan
         id: audit
         # Replace with the published tag once the package is on npm:
-        # uses: your-org/ci-health-audit@v1
+        # uses: dcassil/ci-health-audit@v0.1.1
         uses: ./   # local reference for development
         with:
           config: "./ci-health-audit.config.json"
@@ -56,7 +56,7 @@ jobs:
 
       - name: Run health gate
         # Replace with the published tag once the package is on npm:
-        # uses: your-org/ci-health-audit@v1
+        # uses: dcassil/ci-health-audit@v0.1.1
         uses: ./   # local reference for development
         with:
           config: "./ci-health-audit.config.json"

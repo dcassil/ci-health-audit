@@ -35,17 +35,23 @@ npm install --save-dev dependency-cruiser
 npm install --no-save dependency-cruiser
 ```
 
-### Local build (until npm publish)
+### Install
 
-The package is not yet published. Clone and build it:
+Run it on demand with `npx` (no install needed):
 
 ```bash
-git clone https://github.com/your-org/ci-health-audit.git
-cd ci-health-audit
-npm ci
-npm run build
-# Binaries are now at dist/cli/main.js
+npx ci-health-audit --help
 ```
+
+…or add it to a project as a dev dependency (exposes the `ci-health-audit` and `ciha` bins):
+
+```bash
+npm install --save-dev ci-health-audit
+```
+
+`dependency-cruiser` ships as a dependency of the package, so `npx`/local installs make it available automatically; you only need `scc` on your `PATH` (see Prerequisites above).
+
+> Building from source instead? Clone the repo, `npm ci && npm run build`, then run `node dist/cli/main.js`.
 
 ---
 
@@ -53,16 +59,16 @@ npm run build
 
 ```bash
 # 1. Scaffold a config in the root of the repo you want to audit
-node /path/to/ci-health-audit/dist/cli/main.js init
+npx ci-health-audit init
 
 # 2. (Optional) Edit ci-health-audit.config.json — adjust srcDir, threshold, weights
 #    All defaults work out-of-the-box for a standard TypeScript project
 
 # 3. Run a scan and see the score table
-node /path/to/ci-health-audit/dist/cli/main.js scan
+npx ci-health-audit scan
 ```
 
-Once published to npm, replace `node /path/to/ci-health-audit/dist/cli/main.js` with `npx ci-health-audit` or `npx ciha`.
+`npx ciha …` is a shorter alias for the same binary.
 
 ---
 
@@ -115,22 +121,22 @@ All five use p75 rather than mean or max: the mean hides long tails; the max is 
 
 ```bash
 # Report only (never writes config, never fails on regression)
-node dist/cli/main.js scan
+npx ci-health-audit scan
 
 # Report + machine-readable JSON
-node dist/cli/main.js scan --json
+npx ci-health-audit scan --json
 
 # Gate: fail exit 1 on regression; write back lastScore on pass
-node dist/cli/main.js gate
+npx ci-health-audit gate
 
 # Gate with custom config path
-node dist/cli/main.js gate --config ./infra/ci-health-audit.config.json
+npx ci-health-audit gate --config ./infra/ci-health-audit.config.json
 
 # scan with --gate flag is identical to the gate command
-node dist/cli/main.js scan --gate
+npx ci-health-audit scan --gate
 
 # Force-overwrite an existing config during init
-node dist/cli/main.js init --force
+npx ci-health-audit init --force
 ```
 
 Exit codes follow the contract in the table below.
@@ -181,7 +187,7 @@ jobs:
 
       - name: Run health scan
         id: audit
-        uses: your-org/ci-health-audit@v1
+        uses: dcassil/ci-health-audit@v0.1.1
         with:
           config: "./ci-health-audit.config.json"
           mode: scan
@@ -199,14 +205,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run health gate
-        uses: your-org/ci-health-audit@v1
+        uses: dcassil/ci-health-audit@v0.1.1
         with:
           config: "./ci-health-audit.config.json"
           mode: gate
           fail-on-regression: "true"
 ```
 
-> Until the package is published to npm, replace `uses: your-org/ci-health-audit@v1` with `uses: ./` and add a prior checkout step that checks out the action's repo into a known path. See `.github/workflows/health-audit.example.yml` for a working local-reference example.
+> The action installs `scc` and runs the published npm package via `npx`, so a consumer repo only needs the `uses:` reference above. Pin to a released tag (e.g. `@v0.1.1`) for reproducible CI. To develop against the action inside this repo, use `uses: ./` — see `.github/workflows/health-audit.example.yml`.
 
 ---
 
@@ -220,7 +226,13 @@ The repo ships `.githooks/pre-commit` and `.githooks/pre-push`. Point git at tha
 git config core.hooksPath .githooks
 ```
 
-Both hooks run `npx --no-install ci-health-audit gate` and block the operation on gate failure. Once the package is on npm, `npx --no-install` resolves the binary from your `node_modules/.bin` (you must have `ci-health-audit` in `dependencies` or `devDependencies`). During local development substitute the full `node` invocation:
+Both hooks run `npx --no-install ci-health-audit gate` and block the operation on gate failure. `--no-install` resolves the binary from your `node_modules/.bin`, so add the package to the repo first:
+
+```bash
+npm install --save-dev ci-health-audit
+```
+
+If you prefer running from source during local development, substitute the full `node` invocation:
 
 ```bash
 # .githooks/pre-commit (local dev version)

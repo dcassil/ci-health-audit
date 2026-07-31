@@ -1,6 +1,6 @@
 {
   "name": "ci-health-audit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic 0-10 code health score for JS/TS codebases — usable as a CLI, GitHub Action, or pre-commit/pre-push gate.",
   "type": "module",
   "license": "MIT",
