@@ -65,3 +65,59 @@ export function evaluateGate({ newScore, lastScore, threshold }: GateInput): Gat
   const decision: GateResult['decision'] = newScore >= rawFloor ? 'pass' : 'fail';
   return { decision, floor, newScore, lastScore, threshold, seeded: false };
 }
+
+/**
+ * One project's input to {@link evaluateGateAll} (CIHA-I-0003, Phase 3 / CIHA-T-0017):
+ * the project's unique `name` plus the three raw gate inputs it is judged against —
+ * its just-computed `newScore` and its **own effective** `lastScore`/`threshold`
+ * (resolved from the shared defaults + per-project overrides in Phase 1).
+ */
+export interface ProjectGateInput extends GateInput {
+  /** The project's unique declared name (matches the config `projects[].name`). */
+  name: string;
+}
+
+/** One project's slot in a {@link GateAllResult}: its `name` and per-project {@link GateResult}. */
+export interface ProjectGateResult {
+  /** The project's unique declared name. */
+  name: string;
+  /** The pure per-project decision (carries `floor`, echoed scores, `seeded`). */
+  gate: GateResult;
+}
+
+/**
+ * The aggregated multi-project gate decision (CIHA-I-0003, REQ-005). Carries an
+ * overall `decision` plus a per-project `projects` array in the exact input order
+ * (NFR-001). The overall decision is `'fail'` **iff any** project fails; each
+ * per-project {@link GateResult} exposes `floor` (and, via `newScore`/`lastScore`,
+ * the delta) so the CLI can name every failing project.
+ */
+export interface GateAllResult {
+  /** `'fail'` iff any project fails; otherwise `'pass'`. */
+  decision: 'pass' | 'fail';
+  /** Per-project results, preserving the input order. */
+  projects: ProjectGateResult[];
+}
+
+/**
+ * Evaluate the gate for every project and aggregate to one overall decision.
+ *
+ * Pure — reuses the existing {@link evaluateGate} once per project (each judged
+ * against its own `lastScore`/`threshold`, so the `lastScore === 0` seeding rule
+ * applies independently per project) and performs no I/O, no `process.exit`, and
+ * no clock reads. Input order is preserved verbatim (NFR-001), so the same ordered
+ * inputs always yield the same ordered result. The overall `decision` is `'fail'`
+ * iff **any** project's per-project decision is `'fail'`.
+ */
+export function evaluateGateAll(perProject: readonly ProjectGateInput[]): GateAllResult {
+  const projects: ProjectGateResult[] = perProject.map(({ name, newScore, lastScore, threshold }) => ({
+    name,
+    gate: evaluateGate({ newScore, lastScore, threshold }),
+  }));
+
+  const decision: GateAllResult['decision'] = projects.some((p) => p.gate.decision === 'fail')
+    ? 'fail'
+    : 'pass';
+
+  return { decision, projects };
+}

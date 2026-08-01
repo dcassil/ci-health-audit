@@ -87,32 +87,26 @@ runs:
         EXIT_CODE=$?
         set -e
 
-        # Extract score from JSON output
-        SCORE=$(echo "$JSON_OUT" | python3 -c \
-          "import sys,json; d=json.load(sys.stdin); print(d.get('score', d.get('overall', '')))" \
+        # Export raw JSON so the python helper script can read it via env var.
+        export CIHA_JSON_OUT="$JSON_OUT"
+
+        # Build the per-project job-summary table (one row per project, plus
+        # the mean headline and the full-JSON details block).  The helper
+        # script lives alongside this action.yml; ${{ github.action_path }} is
+        # the checkout dir of THIS action (BASH_SOURCE points at a temp script
+        # in a composite run step, so it cannot be used here).
+        SUMMARY=$(python3 "${{ github.action_path }}/scripts/summarize.py" 2>/dev/null || echo "")
+
+        # Extract the top-level mean score for the step output.
+        SCORE=$(python3 -c \
+          "import json,os; d=json.loads(os.environ.get('CIHA_JSON_OUT') or '{}'); print(d.get('score',''))" \
           2>/dev/null || echo "")
 
         # Emit GitHub output
         echo "score=${SCORE}" >> "$GITHUB_OUTPUT"
 
-        # Write job summary (human-readable)
-        {
-          echo "## ci-health-audit — ${CIHA_MODE} results"
-          echo ""
-          echo "| Field | Value |"
-          echo "|-------|-------|"
-          echo "| **Overall score** | ${SCORE} |"
-          echo "| **Config** | \`${CIHA_CONFIG}\` |"
-          echo "| **Mode** | ${CIHA_MODE} |"
-          echo ""
-          echo "<details><summary>Full JSON output</summary>"
-          echo ""
-          echo '```json'
-          echo "$JSON_OUT"
-          echo '```'
-          echo ""
-          echo "</details>"
-        } >> "$GITHUB_STEP_SUMMARY"
+        # Write job summary
+        echo "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
 
         # Honour fail-on-regression for gate mode
         if [ "$CIHA_MODE" = "gate" ] && [ "${{ inputs.fail-on-regression }}" = "true" ]; then

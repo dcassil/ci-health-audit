@@ -10,7 +10,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadConfig, type Config } from '../index.js';
+import { loadConfig, type ConfigFile } from '../index.js';
 import { ConfigError } from './errors.js';
 
 /** The default config path, relative to the current working directory. */
@@ -26,7 +26,7 @@ export function resolveConfigPath(configPath: string | undefined): string {
  * (→ exit 2) naming the file on any failure. Never shells out; pure file I/O +
  * the engine's pure {@link loadConfig}.
  */
-export function loadConfigFile(absPath: string): Config {
+export function loadConfigFile(absPath: string): ConfigFile {
   let text: string;
   try {
     text = readFileSync(absPath, 'utf8');
@@ -43,6 +43,10 @@ export function loadConfigFile(absPath: string): Config {
   }
 
   try {
+    // Validate and return the full multi-project ConfigFile. The CLI's scan/gate
+    // handler drives the multi-project engine (`scanProjects`) and gate
+    // (`evaluateGateAll`) directly; no single-project reduction happens here
+    // (CIHA-I-0003 Phase 4 / CIHA-T-0018).
     return loadConfig(parsed);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);

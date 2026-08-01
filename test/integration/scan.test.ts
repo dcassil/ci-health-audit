@@ -50,7 +50,7 @@ if (!toolsAvailable) {
   );
 }
 
-const config: Config = { ...DEFAULT_CONFIG, srcDir: fixtureSrc };
+const config: Config = { ...DEFAULT_CONFIG, srcDir: fixtureSrc, lastScore: 0 };
 
 describeOrSkip('scan() end-to-end against fixture-repo (real scc + depcruise)', () => {
   it('produces the pinned overall score within tolerance', async () => {
@@ -80,7 +80,7 @@ describeOrSkip('scan() end-to-end against fixture-repo (real scc + depcruise)', 
     // at the fixture and assert the score/breakdown match the absolute run.
     const relSrc = relative(process.cwd(), fixtureSrc);
     expect(relSrc.startsWith('/')).toBe(false); // sanity: it is relative
-    const result = await scan({ ...DEFAULT_CONFIG, srcDir: relSrc });
+    const result = await scan({ ...DEFAULT_CONFIG, srcDir: relSrc, lastScore: 0 });
 
     // Non-degenerate: node identities matched, so real metrics attached.
     const raw = Object.fromEntries(
@@ -108,7 +108,7 @@ describeOrSkip('scan() end-to-end against fixture-repo (real scc + depcruise)', 
 
   it('does not throw and yields a degenerate result on an empty srcDir (NFR-005)', async () => {
     const emptyDir = join(here, 'fixture-repo', 'empty-src');
-    const result = await scan({ ...DEFAULT_CONFIG, srcDir: emptyDir });
+    const result = await scan({ ...DEFAULT_CONFIG, srcDir: emptyDir, lastScore: 0 });
     // No files → all five metrics collapse to 0 → each maps to a perfect 10.
     expect(result.breakdown.map((b) => b.rawP75)).toEqual([0, 0, 0, 0, 0]);
     expect(result.score).toBe(10);

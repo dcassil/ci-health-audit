@@ -7,7 +7,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
-  scan,
+  scanOne,
+  scanProjects,
   scanWithRawConfig,
   execCommandRunner,
   CommandExecutionError,
@@ -15,6 +16,8 @@ import {
   DEFAULT_CONFIG,
   type CommandRunner,
   type Config,
+  type ConfigFile,
+  type ScanResult,
 } from '../src/index.js';
 
 /** Canned scc output: two nested modules with LOC/complexity. */
@@ -44,11 +47,11 @@ function cannedRunner(): CommandRunner {
   };
 }
 
-const config: Config = { ...DEFAULT_CONFIG, srcDir: '/repo/src' };
+const config: Config = { ...DEFAULT_CONFIG, srcDir: '/repo/src', lastScore: 0 };
 
-describe('scan()', () => {
+describe('scanOne()', () => {
   it('wires plugin → graph → metrics → scorer into a ScanResult', async () => {
-    const result = await scan(config, { runner: cannedRunner() });
+    const result = await scanOne(config, { runner: cannedRunner() });
     expect(typeof result.score).toBe('number');
     expect(result.score).toBeGreaterThanOrEqual(0);
     expect(result.score).toBeLessThanOrEqual(10);
@@ -66,7 +69,7 @@ describe('scan()', () => {
 
   it('resolves the TsToolPlugin from the default registry for language "ts"', async () => {
     // No explicit registry: exercises the built-in default (TsToolPlugin).
-    const result = await scan(config, { runner: cannedRunner() });
+    const result = await scanOne(config, { runner: cannedRunner() });
     expect(result.breakdown).toHaveLength(5);
   });
 
@@ -74,7 +77,7 @@ describe('scan()', () => {
     const registry = new PluginRegistry();
     const { TsToolPlugin } = await import('../src/plugins/ts/plugin.js');
     registry.register(new TsToolPlugin());
-    const result = await scan(config, { runner: cannedRunner(), registry });
+    const result = await scanOne(config, { runner: cannedRunner(), registry });
     expect(result.breakdown).toHaveLength(5);
   });
 
@@ -83,7 +86,7 @@ describe('scan()', () => {
       command.startsWith('scc') ? SCC_JSON : DEPCRUISE_JSON,
     );
     const original = { ...config };
-    await scan(config, { runner: { run } });
+    await scanOne(config, { runner: { run } });
     // The config object is not mutated (no lastScore write-back).
     expect(config).toEqual(original);
     // The runner is the only side-effecting seam and was invoked.
@@ -96,7 +99,7 @@ describe('scan()', () => {
         return command.startsWith('scc') ? '[]' : '{"modules":[]}';
       },
     };
-    const result = await scan(config, { runner: emptyRunner });
+    const result = await scanOne(config, { runner: emptyRunner });
     expect(result.breakdown.map((b) => b.rawP75)).toEqual([0, 0, 0, 0, 0]);
     expect(result.score).toBe(10);
   });
@@ -107,15 +110,127 @@ describe('scan()', () => {
         throw new Error('command not found: scc');
       },
     };
-    await expect(scan(config, { runner: failing })).rejects.toThrow();
+    await expect(scanOne(config, { runner: failing })).rejects.toThrow();
+  });
+});
+
+/** A fake `scanOne` seam yielding a fixed score per call (no shell-out). */
+function fakeScanOne(scores: number[]): {
+  fn: (config: Config) => Promise<ScanResult>;
+  seenSrcDirs: string[];
+} {
+  const seenSrcDirs: string[] = [];
+  let i = 0;
+  const fn = (config: Config): Promise<ScanResult> => {
+    seenSrcDirs.push(config.srcDir);
+    const s = scores[i] ?? 0;
+    i += 1;
+    return Promise.resolve({ score: s, breakdown: [] });
+  };
+  return { fn, seenSrcDirs };
+}
+
+/** Build a validated-shaped ConfigFile from a list of [name, srcDir] projects. */
+function configFile(projects: [string, string][]): ConfigFile {
+  return {
+    ...DEFAULT_CONFIG,
+    projects: projects.map(([name, srcDir]) => ({ name, srcDir, lastScore: 0 })),
+  };
+}
+
+describe('scanProjects()', () => {
+  it('scores every project in declared config order (NFR-001)', async () => {
+    const cfg = configFile([
+      ['core', '/repo/core'],
+      ['cli', '/repo/cli'],
+      ['dash', '/repo/dash'],
+    ]);
+    const fake = fakeScanOne([7, 5, 9]);
+    const out = await scanProjects(cfg, { scanOne: fake.fn });
+    expect(out.projects.map((p) => p.name)).toEqual(['core', 'cli', 'dash']);
+    // scanOne was invoked in declared order (srcDir sequence proves it).
+    expect(fake.seenSrcDirs).toEqual(['/repo/core', '/repo/cli', '/repo/dash']);
+  });
+
+  it('carries each project name, srcDir, and its ScanResult through', async () => {
+    const cfg = configFile([
+      ['core', '/repo/core'],
+      ['cli', '/repo/cli'],
+    ]);
+    const fake = fakeScanOne([7, 5]);
+    const out = await scanProjects(cfg, { scanOne: fake.fn });
+    expect(out.projects[0]).toEqual({
+      name: 'core',
+      srcDir: '/repo/core',
+      result: { score: 7, breakdown: [] },
+    });
+    expect(out.projects[1]?.result.score).toBe(5);
+  });
+
+  it('headline score is the arithmetic mean, rounded to two decimals (REQ-004)', async () => {
+    const cfg = configFile([
+      ['a', '/a'],
+      ['b', '/b'],
+      ['c', '/c'],
+    ]);
+    // (7 + 5 + 9) / 3 = 7
+    const out = await scanProjects(cfg, { scanOne: fakeScanOne([7, 5, 9]).fn });
+    expect(out.score).toBe(7);
+
+    // (8.1 + 4.5) / 2 = 6.3 (exercises rounding to two decimals)
+    const out2 = await scanProjects(configFile([['a', '/a'], ['b', '/b']]), {
+      scanOne: fakeScanOne([8.1, 4.5]).fn,
+    });
+    expect(out2.score).toBe(6.3);
+
+    // (1 + 2) / 3-style repeating decimal → exactly one rounding step.
+    const out3 = await scanProjects(
+      configFile([['a', '/a'], ['b', '/b'], ['c', '/c']]),
+      { scanOne: fakeScanOne([1, 1, 2]).fn },
+    );
+    expect(out3.score).toBe(1.33);
+  });
+
+  it('a one-project config yields that project single score unchanged', async () => {
+    const cfg = configFile([['only', '/repo/only']]);
+    const out = await scanProjects(cfg, { scanOne: fakeScanOne([6.42]).fn });
+    expect(out.projects).toHaveLength(1);
+    expect(out.projects[0]?.result.score).toBe(6.42);
+    expect(out.score).toBe(6.42);
+  });
+
+  it('performs no writes/exits and calls scanOne once per project (NFR-002)', async () => {
+    const cfg = configFile([['a', '/a'], ['b', '/b']]);
+    const spy = vi.fn(
+      (config: Config): Promise<ScanResult> =>
+        Promise.resolve({ score: config.srcDir === '/a' ? 3 : 7, breakdown: [] }),
+    );
+    const original = structuredClone(cfg);
+    const out = await scanProjects(cfg, { scanOne: spy });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(out.score).toBe(5);
+    // The config file object is not mutated (no write-back in the engine).
+    expect(cfg).toEqual(original);
+  });
+
+  it('defaults to the real scanOne when none is injected (uses runner seam)', async () => {
+    const cfg = configFile([['a', '/repo/src']]);
+    const out = await scanProjects(cfg, { runner: cannedRunner() });
+    expect(out.projects).toHaveLength(1);
+    expect(out.projects[0]?.result.breakdown).toHaveLength(5);
   });
 });
 
 describe('scanWithRawConfig()', () => {
-  it('validates raw JSON via loadConfig then scans', async () => {
-    const raw = { ...DEFAULT_CONFIG, srcDir: '/repo/src' };
+  it('validates raw JSON via loadConfig then scans every project', async () => {
+    const raw = {
+      ...DEFAULT_CONFIG,
+      projects: [{ name: '.', srcDir: '/repo/src', lastScore: 0 }],
+    };
     const result = await scanWithRawConfig(raw, { runner: cannedRunner() });
-    expect(result.breakdown).toHaveLength(5);
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0]?.result.breakdown).toHaveLength(5);
+    expect(result.score).toBe(result.projects[0]?.result.score);
   });
 
   it('rejects invalid raw config with a readable error', async () => {

@@ -17,5 +17,8 @@
     "complexity": { "good": 5, "bad": 20, "direction": "lower-better" },
     "fanInOut": { "good": 6, "bad": 30, "direction": "lower-better" }
   },
-  "projects": [{ "name": ".", "srcDir": "./src", "lastScore": 0 }]
+  "projects": [
+    { "name": "a", "srcDir": "./packages/a/src", "lastScore": 0 },
+    { "name": "b", "srcDir": "./apps/b/src", "lastScore": 0 }
+  ]
 }

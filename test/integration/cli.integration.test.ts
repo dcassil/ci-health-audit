@@ -115,10 +115,14 @@ describeOrSkip('CLI end-to-end integration', () => {
     const { status, stdout } = runCli(['scan', '--json', '--config', goodConfig], { cwd: goodDir });
 
     expect(status).toBe(0);
-    const parsed = JSON.parse(stdout) as { score: unknown; breakdown: unknown };
+    const parsed = JSON.parse(stdout) as {
+      score: unknown;
+      projects: { name: string; score: number; breakdown: unknown }[];
+    };
     expect(typeof parsed.score).toBe('number');
     expect(parsed.score).toBeGreaterThan(0);
-    expect(parsed.breakdown).toBeDefined();
+    expect(Array.isArray(parsed.projects)).toBe(true);
+    expect(parsed.projects[0]?.breakdown).toBeDefined();
   });
 
   // -------------------------------------------------------------------------
@@ -126,16 +130,20 @@ describeOrSkip('CLI end-to-end integration', () => {
   // -------------------------------------------------------------------------
 
   it('TC-002a: gate first-run (lastScore 0) exits 0 and writes lastScore', () => {
-    const beforeParsed = JSON.parse(readFileSync(goodConfig, 'utf8')) as { lastScore: number };
-    expect(beforeParsed.lastScore).toBe(0);
+    const beforeParsed = JSON.parse(readFileSync(goodConfig, 'utf8')) as {
+      projects: { lastScore: number }[];
+    };
+    expect(beforeParsed.projects[0]?.lastScore).toBe(0);
 
     const { status, stdout } = runCli(['gate', '--config', goodConfig], { cwd: goodDir });
 
     expect(status).toBe(0);
     expect(stdout).toContain('PASS');
 
-    const afterParsed = JSON.parse(readFileSync(goodConfig, 'utf8')) as { lastScore: number };
-    expect(afterParsed.lastScore).toBeGreaterThan(0);
+    const afterParsed = JSON.parse(readFileSync(goodConfig, 'utf8')) as {
+      projects: { lastScore: number }[];
+    };
+    expect(afterParsed.projects[0]?.lastScore).toBeGreaterThan(0);
   });
 
   // -------------------------------------------------------------------------
@@ -167,9 +175,17 @@ describeOrSkip('CLI end-to-end integration', () => {
     //   Set lastScore = worseScore + 1.5 (clamped to ≤ 10) so floor = worseScore + 0.5 > worseScore.
     //   Gate will compare worseScore < worseScore + 0.5 → FAIL.
     const artificialLastScore = Math.min(10, Math.round((worseScore + 1.5) * 100) / 100);
-    const worseConfigParsed = JSON.parse(readFileSync(worseConfig, 'utf8')) as Record<string, unknown>;
-    worseConfigParsed['lastScore'] = artificialLastScore;
-    worseConfigParsed['threshold'] = -1;
+    const worseConfigParsed = JSON.parse(readFileSync(worseConfig, 'utf8')) as {
+      projects: Record<string, unknown>[];
+    };
+    // PHASE-1 SHIM: the CLI reads the first project (see loadConfigFile); set the
+    // artificial baseline/threshold on that project. Phase 4 rewires to multi-project.
+    const firstProject = worseConfigParsed.projects[0];
+    if (firstProject === undefined) {
+      throw new Error('fixture must declare at least one project');
+    }
+    firstProject['lastScore'] = artificialLastScore;
+    firstProject['threshold'] = -1;
     const artificialConfig = `${JSON.stringify(worseConfigParsed, null, 2)}\n`;
     writeFileSync(worseConfig, artificialConfig);
     const beforeWorseConfig = readFileSync(worseConfig, 'utf8');
@@ -201,9 +217,12 @@ describeOrSkip('CLI end-to-end integration', () => {
     expect(existsSync(initConfig)).toBe(true);
     expect(stdout).toContain(initConfig);
 
-    const parsed = JSON.parse(readFileSync(initConfig, 'utf8')) as Record<string, unknown>;
-    expect(parsed['language']).toBe('ts');
-    expect(parsed['lastScore']).toBe(0);
+    const parsed = JSON.parse(readFileSync(initConfig, 'utf8')) as {
+      language: unknown;
+      projects: { lastScore: number }[];
+    };
+    expect(parsed.language).toBe('ts');
+    expect(parsed.projects[0]?.lastScore).toBe(0);
   });
 
   it('TC-003b: init without --force exits 2 when config already exists', () => {
@@ -229,9 +248,11 @@ describeOrSkip('CLI end-to-end integration', () => {
     const { status } = runCli(['init', '--force', '--config', initConfig]);
 
     expect(status).toBe(0);
-    const parsed = JSON.parse(readFileSync(initConfig, 'utf8')) as Record<string, unknown>;
-    expect(parsed['lastScore']).toBe(0); // reset to default
-    expect(parsed['srcDir']).toBe('./src'); // reset to default
+    const parsed = JSON.parse(readFileSync(initConfig, 'utf8')) as {
+      projects: { srcDir: string; lastScore: number }[];
+    };
+    expect(parsed.projects[0]?.lastScore).toBe(0); // reset to default
+    expect(parsed.projects[0]?.srcDir).toBe('./src'); // reset to default
   });
 
   // -------------------------------------------------------------------------
