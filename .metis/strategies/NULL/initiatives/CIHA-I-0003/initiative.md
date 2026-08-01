@@ -4,14 +4,14 @@ level: initiative
 title: "Monorepo Per-Project Scoring"
 short_code: "CIHA-I-0003"
 created_at: 2026-07-31T23:32:58.034326+00:00
-updated_at: 2026-08-01T00:11:03.988915+00:00
+updated_at: 2026-08-01T21:52:26.670611+00:00
 parent: CIHA-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
