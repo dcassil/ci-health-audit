@@ -4,14 +4,14 @@ level: task
 title: "Phase 8: Release v0.2.0 + migrate consumer configs/workflows"
 short_code: "CIHA-T-0022"
 created_at: 2026-08-01T00:13:10.103972+00:00
-updated_at: 2026-08-01T01:19:29.014401+00:00
+updated_at: 2026-08-01T01:28:31.454791+00:00
 parent: CIHA-I-0003
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,6 +30,8 @@ initiative_id: CIHA-I-0003
 ## Objective **[REQUIRED]**
 
 Ship the breaking change and migrate every live consumer. Cut the v0.2.0 MAJOR release, then rewrite the 8 deployed consumer configs to the `projects` shape — `colab` and `code-audit` become multi-project and are re-baselined (code-audit now covering its `apps/` half), the other 6 become single-project — and bump each consumer workflow to reference the action at `@v0.2.0`. This completes the rollout so the unified model is what runs in production.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -66,4 +68,7 @@ Depends on all engine/CLI/action phases landing first: Phases 1 through 7 (CIHA-
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- **Completed** (release): Bumped `package.json` → 0.2.0, committed the feature on the branch, merged to `main`, reconciled with the divergent remote `d379f50` (scc x86_64 fix) so the final `action.yml` carries BOTH the scc fix and the per-project `summarize.py`. Tagged and pushed **v0.2.0** (commit e4b2757). **Published `ci-health-audit@0.2.0` to npm** (required so the Action's `npx` runs the new engine).
+- **Consumer migration:** rewrote all 8 live configs to the `projects` shape + bumped workflows to `@v0.2.0`. 6 single-project repos wrap their existing baseline as project `"."`; `colab` → 3-project, `code-audit` → 8-project (packages + apps, seeded 0, finally covering `apps/`). 7 repos committed direct to `main`; `code-audit` via PR #12 (protected branch).
+- **Incident + fix:** the first `bump_workflow` pass hit a subshell PATH gap and wrote EMPTY workflow files to 7 repos; caught immediately by verifying repo state, then restored all 7 with the correct actionlint-clean `@v0.2.0` workflow.
+- **Production verification:** all 7 direct repos' CI runs pass green on the real v0.2.0 stack. `colab` reports a mean of 7.84 across its 3 packages (vs the old blended 8.23), and `transactor` (single-project) stays 10 — per-project scoring confirmed live.
