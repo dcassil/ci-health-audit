@@ -11,7 +11,8 @@ describe('public API surface', () => {
     expect(typeof api.scan).toBe('function');
     expect(typeof api.scanWithRawConfig).toBe('function');
     expect(typeof api.loadConfig).toBe('function');
-    expect(typeof api.configSchema).toBe('object');
+    expect(typeof api.configFileSchema).toBe('object');
+    expect(typeof api.resolveProjects).toBe('function');
     expect(typeof api.DEFAULT_CONFIG).toBe('object');
   });
 

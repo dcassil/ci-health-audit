@@ -7,7 +7,7 @@
  * at one-decimal precision (matching the engine), except the threshold which is
  * an integer offset and rendered verbatim.
  */
-import type { GateResult } from './evaluate.js';
+import type { GateResult, GateAllResult } from './evaluate.js';
 
 /** Display a score/floor at one-decimal precision (e.g. `7`→`7.0`, `5.4`→`5.4`). */
 function oneDecimal(value: number): string {
@@ -38,6 +38,43 @@ export function failMessage(result: GateResult): string {
     `(last ${oneDecimal(result.lastScore)}, threshold ${String(result.threshold)}). ` +
     `Config not updated.`
   );
+}
+
+/**
+ * Human message for an overall multi-project PASS (stdout, CIHA-I-0003 Phase 4):
+ * `PASS — all N projects held their floor. Saved N baselines.`
+ * Emitted only on overall PASS, when {@link writeLastScores} has persisted every
+ * project's new score.
+ */
+export function passAllMessage(result: GateAllResult): string {
+  const count = result.projects.length;
+  const noun = count === 1 ? 'project' : 'projects';
+  return `PASS — all ${String(count)} ${noun} held their floor. Saved ${String(count)} baselines.`;
+}
+
+/**
+ * Human message for an overall multi-project FAIL (stderr, CIHA-I-0003 Phase 4).
+ * Names each failing project with its floor, actual score, and delta, one per
+ * line, under a summary header. Nothing is written on FAIL, so the message says so.
+ * `FAIL — 1 project regressed beyond its floor. Config not updated.`
+ * `  cli — score 4.5 < floor 5.0 (last 7.0, threshold -2, delta -2.5)`
+ */
+export function failAllMessage(result: GateAllResult): string {
+  const failed = result.projects.filter((p) => p.gate.decision === 'fail');
+  const noun = failed.length === 1 ? 'project' : 'projects';
+  const header =
+    `FAIL — ${String(failed.length)} ${noun} regressed beyond ` +
+    `${failed.length === 1 ? 'its floor' : 'their floor'}. Config not updated.`;
+  const lines = failed.map((p) => {
+    const g = p.gate;
+    const delta = Math.round((g.newScore - g.lastScore) * 100) / 100;
+    const sign = delta >= 0 ? '+' : '';
+    return (
+      `  ${p.name} — score ${oneDecimal(g.newScore)} < floor ${oneDecimal(g.floor)} ` +
+      `(last ${oneDecimal(g.lastScore)}, threshold ${String(g.threshold)}, delta ${sign}${oneDecimal(delta)})`
+    );
+  });
+  return [header, ...lines].join('\n');
 }
 
 /** The `gate` object embedded in `--json` output (Detailed Design). */

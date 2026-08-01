@@ -10,6 +10,38 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run } from '../../src/cli/program.js';
+import { runInit } from '../../src/cli/commands/init.js';
+import type { DiscoveryFs } from '../../src/cli/discoverWorkspaces.js';
+
+/** In-memory {@link DiscoveryFs} from a path → contents map (see discovery tests). */
+function makeFs(files: Record<string, string>): DiscoveryFs {
+  const filePaths = new Set(Object.keys(files));
+  const dirPaths = new Set<string>();
+  for (const path of filePaths) {
+    const segments = path.split('/');
+    for (let i = 1; i < segments.length; i += 1) dirPaths.add(segments.slice(0, i).join('/'));
+  }
+  return {
+    exists: (p) => filePaths.has(p) || dirPaths.has(p),
+    readFile: (p) => {
+      const c = files[p];
+      if (c === undefined) throw new Error(`no such file: ${p}`);
+      return c;
+    },
+    isDirectory: (p) => dirPaths.has(p),
+    readDir: (p) => {
+      const prefix = `${p}/`;
+      const children = new Set<string>();
+      for (const q of [...filePaths, ...dirPaths]) {
+        if (q.startsWith(prefix)) {
+          const first = q.slice(prefix.length).split('/')[0];
+          if (first !== undefined) children.add(first);
+        }
+      }
+      return [...children];
+    },
+  };
+}
 
 interface Captured {
   out: string[];
@@ -39,9 +71,11 @@ describe('cli init', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('writes the default config with 2-space indent + trailing newline, exit 0', async () => {
+  it('writes the single-root fallback config (no workspaces), 2-space indent + trailing newline, exit 0', () => {
     const { writer, captured } = makeWriter();
-    const code = await run(['init', '--config', configPath], { writer });
+    // Empty fs at an isolated root ⇒ no workspaces discovered ⇒ single root.
+    const fs = makeFs({ '/root/package.json': JSON.stringify({ name: 'solo' }) });
+    const code = runInit({ configPath, force: false }, writer, { fs, root: '/root', isTty: false });
 
     expect(code).toBe(0);
     expect(existsSync(configPath)).toBe(true);
@@ -49,8 +83,65 @@ describe('cli init', () => {
     expect(text.endsWith('\n')).toBe(true);
     expect(text).toContain('  "language": "ts"');
     const parsed = JSON.parse(text) as Record<string, unknown>;
-    expect(parsed).toMatchObject({ language: 'ts', srcDir: './src', lastScore: 0, threshold: -2 });
+    expect(parsed).toMatchObject({
+      language: 'ts',
+      threshold: -2,
+      projects: [{ name: '.', srcDir: './src', lastScore: 0 }],
+    });
     expect(captured.out.join('\n')).toContain(configPath);
+    expect(captured.out.join('\n')).toContain('single root project');
+  });
+
+  it('writes one project per discovered workspace (npm + pnpm), exit 0', () => {
+    const { writer } = makeWriter();
+    const fs = makeFs({
+      '/root/package.json': JSON.stringify({ workspaces: ['packages/*'] }),
+      '/root/packages/core/package.json': JSON.stringify({ name: '@acme/core' }),
+      '/root/packages/cli/package.json': JSON.stringify({ name: '@acme/cli' }),
+    });
+    const code = runInit({ configPath, force: false }, writer, { fs, root: '/root', isTty: false });
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(parsed['projects']).toEqual([
+      { name: '@acme/cli', srcDir: './packages/cli', lastScore: 0 },
+      { name: '@acme/core', srcDir: './packages/core', lastScore: 0 },
+    ]);
+  });
+
+  it('non-TTY never invokes the prompt seam (silent single-root fallback)', () => {
+    const { writer } = makeWriter();
+    const fs = makeFs({ '/root/package.json': JSON.stringify({ name: 'solo' }) });
+    let prompted = false;
+    const code = runInit({ configPath, force: false }, writer, {
+      fs,
+      root: '/root',
+      isTty: false,
+      prompt: () => {
+        prompted = true;
+        return [];
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(prompted).toBe(false);
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(parsed['projects']).toEqual([{ name: '.', srcDir: './src', lastScore: 0 }]);
+  });
+
+  it('TTY prompt seam can supply the projects to write', () => {
+    const { writer } = makeWriter();
+    const fs = makeFs({ '/root/package.json': JSON.stringify({ name: 'solo' }) });
+    const code = runInit({ configPath, force: false }, writer, {
+      fs,
+      root: '/root',
+      isTty: true,
+      prompt: () => [{ name: 'custom', srcDir: './lib', lastScore: 0 }],
+    });
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(parsed['projects']).toEqual([{ name: 'custom', srcDir: './lib', lastScore: 0 }]);
   });
 
   it('refuses to overwrite an existing config without --force (exit 2, file untouched)', async () => {

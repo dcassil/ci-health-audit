@@ -9,7 +9,7 @@ import { TsToolPlugin } from '../src/plugins/ts/plugin.js';
 import type { CommandRunner, ScanContext } from '../src/scanner/types.js';
 import { type Config, DEFAULT_CONFIG } from '../src/config/schema.js';
 
-const config: Config = DEFAULT_CONFIG;
+const config: Config = { ...DEFAULT_CONFIG, srcDir: './src', lastScore: 0 };
 
 /** A CommandRunner that returns a canned stdout for whichever binary is invoked. */
 function makeRunner(map: {
